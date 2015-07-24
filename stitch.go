@@ -82,6 +82,45 @@ func main() {
 		}
 		classes[p] = append(classes[p], repData)
 	}
+
+	fn := func(left, right *record) (score float64, ok bool) {
+		if right.genomic.strand == seq.None {
+			return math.Inf(-1), ok
+		}
+
+		score = left.score
+
+		var overlap int
+
+		// Genomic coordinate term.
+		overlap = left.genomic.right - right.genomic.left
+		if overlap > 0 {
+			// Case where there is a back step.
+			score -= float64(overlap) * 10
+		} else {
+			// Case where there is a separation.
+			score -= float64(overlap) * -1
+		}
+
+		// Repeat coordinate term.
+		if right.genomic.strand == seq.Plus {
+			overlap = left.right - right.left
+		} else {
+			overlap = right.right - left.left
+		}
+		if overlap > 0 {
+			// Case where there is a back step.
+			score -= float64(overlap) * 500
+		} else {
+			// Case where there is a separation.
+			score -= float64(overlap) * -10
+		}
+
+		return score, true
+	}
+
+	const maximumSeparation = 5e4
+
 	for p, c := range classes {
 		fmt.Printf("%+v %d\n", p, len(c))
 		if len(c) < 2 || c[0].left == none {
@@ -89,92 +128,70 @@ func main() {
 			continue
 		}
 		sort.Sort(records(c))
+
 		var splits int
 		for i, r := range c[1:] {
-			if r.genomic.right-c[i].genomic.right > 5e4 {
+			if r.genomic.right-c[i].genomic.right > maximumSeparation {
 				splits++
 			}
 		}
-		fmt.Println("\tpotential splits:", splits)
+		fmt.Println("potential splits:", splits)
 
-		a := make([][]element, len(c))
-		for i := 0; i < 2; i++ {
-			a[i] = make([]element, len(c))
-		}
-		for i, r := range c {
-			a[0][i] = element{link: i, score: r.score}
-		}
-		a[1][0].score = a[0][0].score
-
-		fn := func(left, right *record) (score float64, ok bool) {
-			ok = right.genomic.right-left.genomic.right <= 5e4
-			if !ok || right.genomic.strand == seq.None {
-				return math.Inf(-1), ok
-			}
-
-			score = left.score
-
-			var overlap int
-
-			// Genomic coordinate term.
-			overlap = left.genomic.right - right.genomic.left
-			if overlap > 0 {
-				// Case where there is a back step.
-				score -= float64(overlap) * 10
-			} else {
-				// Case where there is a separation.
-				score -= float64(overlap) * -1
-			}
-
-			// Repeat coordinate term.
-			if right.genomic.strand == seq.Plus {
-				overlap = left.right - right.left
-			} else {
-				overlap = right.right - left.left
-			}
-			if overlap > 0 {
-				// Case where there is a back step.
-				score -= float64(overlap) * 100
-			} else {
-				// Case where there is a separation.
-				score -= float64(overlap) * -1
-			}
-
-			return score, true
-		}
-
-		for i := 1; i < len(a); i++ {
-			for j := i; j < len(c); j++ {
-				a[i][j] = max(c, a, i, j, fn)
-			}
-			if i < len(c)-1 {
-				a[i+1], a[i-1] = a[i-1], nil
+		last := 0
+		for i, r := range c[1:] {
+			if r.genomic.right-c[i].genomic.right > maximumSeparation || i == len(c)-2 {
+				stitch(c[last:i+1], fn)
+				last = i + 1
 			}
 		}
+	}
+}
 
-		final := a[len(a)-1]
-		wasUsed := make([]bool, len(final))
-		for i := len(final) - 1; i >= 0; i-- {
-			if wasUsed[i] {
-				continue
-			}
-			var (
-				parts []part
-				p     int
-			)
-			for p = i; p != final[p].link; p = final[p].link {
-				wasUsed[p] = true
-				parts = append(parts, part{name: c[p].name, left: c[p].left, right: c[p].right, genomic: c[p].genomic})
+func stitch(c []*record, fn func(left, right *record) (score float64, ok bool)) {
+	if len(c) < 2 {
+		return
+	}
+	fmt.Printf("split size: %d\n", len(c))
+	a := make([][]element, len(c))
+	for i := 0; i < 2; i++ {
+		a[i] = make([]element, len(c))
+	}
+	for i, r := range c {
+		a[0][i] = element{link: i, score: r.score}
+	}
+	a[1][0].score = a[0][0].score
 
-			}
-			if p == i {
-				continue
-			}
+	for i := 1; i < len(a); i++ {
+		for j := i; j < len(c); j++ {
+			a[i][j] = max(c, a, i, j, fn)
+		}
+		if i < len(c)-1 {
+			a[i+1], a[i-1] = a[i-1], nil
+		}
+	}
+
+	final := a[len(a)-1]
+	wasUsed := make([]bool, len(final))
+	for i := len(final) - 1; i >= 0; i-- {
+		if wasUsed[i] {
+			continue
+		}
+		var (
+			parts []part
+			p     int
+		)
+		for p = i; p != final[p].link; p = final[p].link {
+			wasUsed[p] = true
 			parts = append(parts, part{name: c[p].name, left: c[p].left, right: c[p].right, genomic: c[p].genomic})
 
-			reverse(parts)
-			fmt.Printf("\t%v\n", parts)
 		}
+		if p == i {
+			continue
+		}
+		parts = append(parts, part{name: c[p].name, left: c[p].left, right: c[p].right, genomic: c[p].genomic})
+
+		reverse(parts)
+		fmt.Printf("\t%v\n", parts)
 	}
 }
 
