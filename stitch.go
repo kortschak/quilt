@@ -1,4 +1,4 @@
-// Copyright ©2013 The bíogo Authors. All rights reserved.
+// Copyright ©2015 The bíogo Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -17,10 +18,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/biogo/biogo/seq"
-
 	"github.com/biogo/biogo/feat"
 	"github.com/biogo/biogo/io/featio/gff"
+	"github.com/biogo/biogo/seq"
 )
 
 var (
@@ -85,7 +85,7 @@ func main() {
 
 	fn := func(left, right *record) (score float64, ok bool) {
 		if right.genomic.strand == seq.None {
-			return math.Inf(-1), ok
+			return math.Inf(-1), false
 		}
 
 		score = left.score
@@ -121,10 +121,12 @@ func main() {
 
 	const maximumSeparation = 5e4
 
+	var all []composite
+
 	for p, c := range classes {
-		fmt.Printf("%+v %d\n", p, len(c))
+		fmt.Fprintf(os.Stderr, "%+v %d\n", p, len(c))
 		if len(c) < 2 || c[0].left == none {
-			fmt.Println("\tskip")
+			fmt.Fprintln(os.Stderr, "\tskip")
 			continue
 		}
 		sort.Sort(records(c))
@@ -135,23 +137,95 @@ func main() {
 				splits++
 			}
 		}
-		fmt.Println("potential splits:", splits)
+		fmt.Fprintln(os.Stderr, "potential splits:", splits)
 
 		last := 0
 		for i, r := range c[1:] {
 			if r.genomic.right-c[i].genomic.right > maximumSeparation || i == len(c)-2 {
-				stitch(c[last:i+1], fn)
+				n := (i + 1) - last
+				if n < 2 {
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "split size: %d\n", n)
+				composites := stitch(c[last:i+1], fn)
+
+				sort.Sort(byGenomeLocation(composites))
+				for _, f := range composites {
+					fmt.Fprintf(os.Stderr, "\t%+v\n", f)
+				}
 				last = i + 1
+
+				all = append(all, composites...)
 			}
 		}
 	}
+
+	sort.Sort(byGenomeLocation(all))
+	w := gff.NewWriter(os.Stdout, 60, true)
+	gf := &gff.Feature{
+		Source:    "stitch",
+		Feature:   "composite",
+		FeatFrame: gff.NoFrame,
+	}
+	for _, c := range all {
+		gf.SeqName = c.parts[0].genomic.loc.Name()
+		gf.FeatStart = c.parts[0].genomic.left
+		gf.FeatEnd = c.parts[len(c.parts)-1].genomic.right
+		score := c.score
+		gf.FeatScore = &score
+		gf.FeatStrand = c.parts[0].genomic.strand
+
+		gf.FeatAttributes = gff.Attributes{
+			{Tag: "Class", Value: `"` + c.class + `"`},
+			{Tag: "Parts", Value: c.parts.String()},
+		}
+
+		w.Write(gf)
+	}
 }
 
-func stitch(c []*record, fn func(left, right *record) (score float64, ok bool)) {
-	if len(c) < 2 {
-		return
+type composite struct {
+	class string
+	score float64
+	parts parts
+}
+
+type parts []part
+
+func (p parts) String() string {
+	var buf bytes.Buffer
+	for i, e := range p {
+		if i == 0 {
+			buf.WriteByte('"')
+		} else {
+			buf.WriteByte('|')
+		}
+		fmt.Fprintf(&buf, `%s %d %d %d %d`,
+			e.name,
+			feat.ZeroToOne(e.left), e.right,
+			feat.ZeroToOne(e.genomic.left), e.genomic.right,
+		)
 	}
-	fmt.Printf("split size: %d\n", len(c))
+	buf.WriteByte('"')
+	return buf.String()
+}
+
+type byGenomeLocation []composite
+
+func (c byGenomeLocation) Len() int { return len(c) }
+func (c byGenomeLocation) Less(i, j int) bool {
+	iName := c[i].parts[0].genomic.loc.Name()
+	jName := c[j].parts[0].genomic.loc.Name()
+	return iName < jName || (iName == jName && c[i].parts[0].genomic.left < c[j].parts[0].genomic.left)
+}
+func (c byGenomeLocation) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
+
+func stitch(c []*record, fn func(left, right *record) (score float64, ok bool)) []composite {
+	if len(c) < 2 {
+		return nil
+	}
+
+	// Dynamic programming to maximise the score of chained features.
 	a := make([][]element, len(c))
 	for i := 0; i < 2; i++ {
 		a[i] = make([]element, len(c))
@@ -170,6 +244,8 @@ func stitch(c []*record, fn func(left, right *record) (score float64, ok bool)) 
 		}
 	}
 
+	var composites []composite
+
 	final := a[len(a)-1]
 	wasUsed := make([]bool, len(final))
 	for i := len(final) - 1; i >= 0; i-- {
@@ -177,22 +253,26 @@ func stitch(c []*record, fn func(left, right *record) (score float64, ok bool)) 
 			continue
 		}
 		var (
-			parts []part
-			p     int
+			cmp composite
+			p   int
 		)
+		cmp.score = final[i].score
+		cmp.class = c[0].class
 		for p = i; p != final[p].link; p = final[p].link {
 			wasUsed[p] = true
-			parts = append(parts, part{name: c[p].name, left: c[p].left, right: c[p].right, genomic: c[p].genomic})
+			cmp.parts = append(cmp.parts, part{name: c[p].name, left: c[p].left, right: c[p].right, genomic: c[p].genomic})
 
 		}
 		if p == i {
 			continue
 		}
-		parts = append(parts, part{name: c[p].name, left: c[p].left, right: c[p].right, genomic: c[p].genomic})
+		cmp.parts = append(cmp.parts, part{name: c[p].name, left: c[p].left, right: c[p].right, genomic: c[p].genomic})
 
-		reverse(parts)
-		fmt.Printf("\t%v\n", parts)
+		reverse(cmp.parts)
+		composites = append(composites, cmp)
 	}
+
+	return composites
 }
 
 type element struct {
@@ -248,9 +328,10 @@ func (c contig) Location() feat.Feature { return nil }
 
 // repeat is a repeat-matching interval.
 type repeat struct {
+	loc feat.Feature
+
 	left, right int
 
-	loc    feat.Feature
 	strand seq.Strand
 }
 
