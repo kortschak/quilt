@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// brahma performs annotation of GFF intervals produced by PALS/PILER, taking
-// annotation information from a GFF file generated from RepeatMasker output.
 package main
 
 import (
