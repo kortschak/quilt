@@ -100,8 +100,8 @@ func main() {
 		}
 	}
 
-	names := make([]string, 0, len(discordIn))
-	for c := range discordIn {
+	names := make([]string, 0, len(allIn))
+	for c := range allIn {
 		names = append(names, c)
 	}
 	sort.Strings(names)
