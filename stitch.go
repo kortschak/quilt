@@ -290,7 +290,7 @@ type element struct {
 func max(c []*record, a [][]element, i, j int, fn func(left, right *record) (score float64, ok bool)) element {
 	e := a[i-1][j]
 	right := c[j]
-	for k := j - 1; j >= 0; j-- {
+	for k := j - 1; k >= 0; k-- {
 		left := c[k]
 		s, ok := fn(left, right)
 		if !ok {
