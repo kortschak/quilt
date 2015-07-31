@@ -17,7 +17,7 @@ const (
 	concordTolerance  = 0.5
 )
 
-func costFunction(left, right *record) (score float64, ok bool) {
+func costFunction(left, right *simple) (score float64, ok bool) {
 	// Short circuit if we got here without a strand or
 	// if the distance between the sorted ends is greater
 	// than our maximum span.
@@ -65,4 +65,11 @@ func costFunction(left, right *record) (score float64, ok bool) {
 	}
 
 	return left.score - math.Abs(cost), true
+}
+
+func abs(a int) int {
+	if a < 0 {
+		return -a
+	}
+	return a
 }
