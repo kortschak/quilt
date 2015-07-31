@@ -135,6 +135,7 @@ func main() {
 		trees[chr].Do(func(i interval.IntInterface) (done bool) {
 			in := i.(composite).Feature
 			if f, ok := haveInsertion[in]; ok {
+				sort.Sort(byGenomeLocation(f))
 				in.Source = "patch"
 				in.FeatAttributes = append(in.FeatAttributes, gff.Attribute{
 					Tag:   "TinT",
@@ -217,3 +218,15 @@ func (q *query) Overlap(b interval.IntRange) bool {
 }
 func (q *query) ID() uintptr              { return 0 }
 func (q *query) Range() interval.IntRange { return interval.IntRange{q.FeatStart, q.FeatEnd} }
+
+type byGenomeLocation []*gff.Feature
+
+func (f byGenomeLocation) Len() int { return len(f) }
+func (f byGenomeLocation) Less(i, j int) bool {
+	iName := f[i].SeqName
+	jName := f[j].SeqName
+	return iName < jName ||
+		(iName == jName && f[i].FeatStart < f[j].FeatStart) ||
+		(iName == jName && f[i].FeatStart == f[j].FeatStart && f[i].FeatEnd > f[j].FeatEnd)
+}
+func (f byGenomeLocation) Swap(i, j int) { f[i], f[j] = f[j], f[i] }
