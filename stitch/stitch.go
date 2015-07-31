@@ -57,7 +57,8 @@ func compositesFrom(parts map[partition][]*simple, maxSeparation, workers int) <
 							continue
 						}
 						if workers == 1 {
-							fmt.Fprintf(os.Stderr, "split size: %d\n", n)
+							fmt.Fprintf(os.Stderr, "split size:%d from(right end):%d to:%d\n",
+								n, recs[i].genomic.right, recs[j+1].genomic.right)
 						}
 						c := stitch(recs[i:j+2], costFunction)
 						i = j + 2
