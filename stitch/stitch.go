@@ -330,7 +330,7 @@ func (c contig) Location() feat.Feature { return nil }
 
 // repeat is a repeat-matching interval.
 type repeat struct {
-	loc feat.Feature
+	loc contig
 
 	left, right int
 
