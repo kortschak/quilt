@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/biogo/biogo/feat"
 	"github.com/biogo/biogo/io/featio/gff"
@@ -22,8 +23,9 @@ import (
 )
 
 var (
-	inFile = flag.String("in", "", "Filename for source annotation.")
-	help   = flag.Bool("help", false, "Print this usage message.")
+	inFile  = flag.String("in", "", "Filename for source annotation.")
+	workers = flag.Int("workers", 1, "Number of parallel workers.")
+	help    = flag.Bool("help", false, "Print this usage message.")
 )
 
 func main() {
@@ -81,8 +83,15 @@ func main() {
 		classes[p] = append(classes[p], repData)
 	}
 
+	// maxSpan is the maximum distance we will
+	// examine left of our current right element.
+	const maxSpan = 1e5
+
 	fn := func(left, right *record) (score float64, ok bool) {
-		if right.genomic.strand == seq.None {
+		// Short circuit if we got here without a strand or
+		// if the distance between the sorted ends is greater
+		// than our maximum span.
+		if right.genomic.strand == seq.None || right.genomic.right-left.genomic.right > maxSpan {
 			return math.Inf(-1), false
 		}
 
@@ -94,7 +103,19 @@ func main() {
 			rOverlap = right.right - left.left
 		}
 
-		cost := float64(gOverlap) * float64(rOverlap) * float64(gOverlap-rOverlap)
+		// Tolerance values specify the width
+		// of troughs in the cost function.
+		// Values for tolerance are greater
+		// than or equal to zero.
+		const (
+			gOverlapTolerance = 2
+			rOverlapTolerance = 1
+			concordTolerance  = 0.5
+		)
+
+		cost := math.Pow(float64(abs(gOverlap)), gOverlapTolerance) *
+			math.Pow(float64(abs(rOverlap)), rOverlapTolerance) *
+			math.Pow(float64(abs(gOverlap-rOverlap)), concordTolerance)
 		switch {
 		// Special-case immediately adjacent intervals.
 		case rOverlap == 0:
@@ -126,46 +147,74 @@ func main() {
 		return left.score - math.Abs(cost), true
 	}
 
-	const maximumSeparation = 5e4
+	// maxSeparation is the maximum distance between
+	// successive element sorted end points that allow the
+	// elements to be included in the same analysis block.
+	const maxSeparation = 5e4
+
+	done := make(chan []composite)
+	limit := make(chan struct{}, *workers)
+	var wg sync.WaitGroup
+	go func() {
+		for p, c := range classes {
+			p, c := p, c
+			wg.Add(1)
+			limit <- struct{}{}
+			go func() {
+				defer func() {
+					<-limit
+					wg.Done()
+				}()
+
+				if len(c) < 2 || c[0].left == none {
+					log.Printf("%v records=%d - skip", p, len(c))
+					return
+				}
+
+				sort.Sort(records(c))
+
+				var splits int
+				for i, r := range c[1:] {
+					if r.genomic.right-c[i].genomic.right > maxSeparation {
+						splits++
+					}
+				}
+				log.Printf("%v records=%d splits=%d", p, len(c), splits)
+
+				i := 0
+				for j, r := range c[1:] {
+					if r.genomic.right-c[j].genomic.right > maxSeparation || j == len(c)-2 {
+						n := (j + 2) - i
+						if n < 2 {
+							continue
+						}
+						if *workers == 1 {
+							fmt.Fprintf(os.Stderr, "split size: %d\n", n)
+						}
+						part := stitch(c[i:j+2], fn)
+						i = j + 2
+
+						if *workers == 1 {
+							sort.Sort(byGenomeLocation(part))
+							for _, f := range part {
+								fmt.Fprintf(os.Stderr, "\t%+v\n", f)
+							}
+						}
+
+						done <- part
+					}
+				}
+			}()
+		}
+		wg.Wait()
+		close(done)
+	}()
 
 	var all []composite
-
-	for p, c := range classes {
-		fmt.Fprintf(os.Stderr, "%+v %d\n", p, len(c))
-		if len(c) < 2 || c[0].left == none {
-			fmt.Fprintln(os.Stderr, "\tskip")
-			continue
-		}
-		sort.Sort(records(c))
-
-		var splits int
-		for i, r := range c[1:] {
-			if r.genomic.right-c[i].genomic.right > maximumSeparation {
-				splits++
-			}
-		}
-		fmt.Fprintln(os.Stderr, "potential splits:", splits)
-
-		last := 0
-		for i, r := range c[1:] {
-			if r.genomic.right-c[i].genomic.right > maximumSeparation || i == len(c)-2 {
-				n := (i + 1) - last
-				if n < 2 {
-					continue
-				}
-				fmt.Fprintf(os.Stderr, "split size: %d\n", n)
-				composites := stitch(c[last:i+1], fn)
-
-				sort.Sort(byGenomeLocation(composites))
-				for _, f := range composites {
-					fmt.Fprintf(os.Stderr, "\t%+v\n", f)
-				}
-				last = i + 1
-
-				all = append(all, composites...)
-			}
-		}
+	for composites := range done {
+		all = append(all, composites...)
 	}
+	log.Println("chaining complete.")
 
 	sort.Sort(byGenomeLocation(all))
 	w := gff.NewWriter(os.Stdout, 60, true)
@@ -189,6 +238,13 @@ func main() {
 
 		w.Write(gf)
 	}
+}
+
+func abs(a int) int {
+	if a < 0 {
+		return -a
+	}
+	return a
 }
 
 type composite struct {
@@ -309,6 +365,10 @@ type partition struct {
 	chr    string
 	strand seq.Strand
 	class  string
+}
+
+func (p partition) String() string {
+	return fmt.Sprintf("chr:%s strand:(%v) class:%s", p.chr, p.strand, p.class)
 }
 
 type part struct {
