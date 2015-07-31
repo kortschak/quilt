@@ -53,33 +53,33 @@ func main() {
 		}
 
 		gf := f.(*gff.Feature)
-		repData := &record{
-			genomic: repeat{
+		repeat := &record{
+			genomic: location{
 				left:   gf.FeatStart,
 				right:  gf.FeatEnd,
-				loc:    contig(gf.SeqName),
+				chrom:  gf.SeqName,
 				strand: gf.FeatStrand,
 			},
 		}
 		if gf.FeatScore != nil {
-			repData.score = *gf.FeatScore
+			repeat.score = *gf.FeatScore
 		}
 
 		ra := gf.FeatAttributes.Get("Repeat")
 		if ra == "" {
 			log.Fatal("missing repeat tag: file probably not an RM gff.")
 		}
-		err = repData.parse(ra)
+		err = repeat.parse(ra)
 		if err != nil {
 			log.Fatalf("failed to parse repeat tag: %v\n", err)
 		}
 
 		p := partition{
-			chr:    gf.SeqName,
+			chrom:  gf.SeqName,
 			strand: gf.FeatStrand,
-			class:  repData.class,
+			class:  repeat.class,
 		}
-		classes[p] = append(classes[p], repData)
+		classes[p] = append(classes[p], repeat)
 	}
 
 	// maxSeparation is the maximum distance between
@@ -159,7 +159,7 @@ func main() {
 		FeatFrame: gff.NoFrame,
 	}
 	for _, c := range all {
-		gf.SeqName = c.parts[0].genomic.loc.Name()
+		gf.SeqName = c.parts[0].genomic.chrom
 		gf.FeatStart = c.parts[0].genomic.left
 		gf.FeatEnd = c.parts[len(c.parts)-1].genomic.right
 		score := c.score
@@ -212,8 +212,8 @@ type byGenomeLocation []composite
 
 func (c byGenomeLocation) Len() int { return len(c) }
 func (c byGenomeLocation) Less(i, j int) bool {
-	iName := c[i].parts[0].genomic.loc.Name()
-	jName := c[j].parts[0].genomic.loc.Name()
+	iName := c[i].parts[0].genomic.chrom
+	jName := c[j].parts[0].genomic.chrom
 	return iName < jName || (iName == jName && c[i].parts[0].genomic.left < c[j].parts[0].genomic.left)
 }
 func (c byGenomeLocation) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
@@ -297,19 +297,19 @@ func max(c []*record, a [][]element, i, j int, fn func(left, right *record) (sco
 }
 
 type partition struct {
-	chr    string
+	chrom  string
 	strand seq.Strand
 	class  string
 }
 
 func (p partition) String() string {
-	return fmt.Sprintf("chr:%s strand:(%v) class:%s", p.chr, p.strand, p.class)
+	return fmt.Sprintf("chr:%s strand:(%v) class:%s", p.chrom, p.strand, p.class)
 }
 
 type part struct {
 	name        string
 	left, right int
-	genomic     repeat
+	genomic     location
 }
 
 func reverse(s []part) {
@@ -318,37 +318,19 @@ func reverse(s []part) {
 	}
 }
 
-// contig is a sequence contig with repeats mapped to it.
-type contig string
-
-func (c contig) Start() int             { return 0 }
-func (c contig) End() int               { return 0 }
-func (c contig) Len() int               { return 0 }
-func (c contig) Name() string           { return string(c) }
-func (c contig) Description() string    { return "contig" }
-func (c contig) Location() feat.Feature { return nil }
-
-// repeat is a repeat-matching interval.
-type repeat struct {
-	loc contig
-
-	left, right int
-
+// location is a repeat-matching interval.
+type location struct {
+	chrom  string
+	left   int
+	right  int
 	strand seq.Strand
 }
-
-func (r repeat) Start() int             { return r.left }
-func (r repeat) End() int               { return r.right }
-func (r repeat) Len() int               { return r.right - r.left }
-func (r repeat) Name() string           { return fmt.Sprintf("%s:[%d,%d)", r.loc.Name(), r.left, r.right) }
-func (r repeat) Description() string    { return "repeat" }
-func (r repeat) Location() feat.Feature { return r.loc }
 
 // record is a masked repeat record.
 type record struct {
 	// genomic is the genomic region matched
 	// to the the repeat identified below.
-	genomic repeat
+	genomic location
 
 	// name and class that the repeat type
 	// and class defined by the masker.
@@ -396,8 +378,8 @@ type records []*record
 
 func (r records) Len() int { return len(r) }
 func (r records) Less(i, j int) bool {
-	iName := r[i].genomic.loc.Name()
-	jName := r[j].genomic.loc.Name()
+	iName := r[i].genomic.chrom
+	jName := r[j].genomic.chrom
 	return iName < jName || (iName == jName && r[i].genomic.right < r[j].genomic.right)
 }
 func (r records) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
