@@ -2,6 +2,25 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// stitch is a program that joins repeat annotation features based on end points.
+//
+// The stitch program takes a collection of repeat features in GFF format with a
+// feature attribute field "Repeat". The Repeat attribute holds two string fields,
+// repeat type and repeat class, and three integer fields, start and end of alignment
+// relative to the repeat consensus and the number of bases the consensus extends
+// beyond the alignment end. For example:
+//  Repeat AluJr SINE/Alu 3 295 17
+// indicates the repeat is an AluJr, a SINE/Alu, and that the repeat annotation
+// includes bases 3 to 295 of the AluJr consensus, stopping 17 bases before the end
+// of the consensus.
+//
+// Stitch assembles repeat features by first grouping alignments by chromosome, strand
+// and repeat class. It then performs a dynamic programming extension of a repeat
+// feature chain by adding score improving segments while considering a cost function
+// based on genomic and repeats consensus alignment end points. To extend a chain,
+// the cost function must be be outweighed by the score gained by including the
+// chain prefix.
+//
 package main
 
 import (
@@ -10,22 +29,25 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"sort"
 
 	"github.com/biogo/biogo/io/featio/gff"
 )
 
 var (
-	inFile  = flag.String("in", "", "Filename for source annotation.")
-	workers = flag.Int("workers", 1, "Number of parallel workers.")
-	help    = flag.Bool("help", false, "Print this usage message.")
+	inFile  = flag.String("in", "", "filename of a GFF file containing repeat annotations")
+	workers = flag.Int("workers", 0, "number of parallel workers to use for stitching repeats (if 0 use GOMAXPROCS)")
 )
 
 func main() {
 	flag.Parse()
-	if *help || *inFile == "" {
+	if *inFile == "" {
 		flag.Usage()
 		os.Exit(0)
+	}
+	if *workers == 0 {
+		*workers = runtime.GOMAXPROCS(0)
 	}
 
 	f, err := os.Open(*inFile)
@@ -78,9 +100,15 @@ func main() {
 		FeatFrame: gff.NoFrame,
 	}
 	for _, c := range all {
+		right := c.parts[0].genomic.right
+		for _, p := range c.parts[1:] {
+			if p.right > right {
+				right = p.right
+			}
+		}
 		gf.SeqName = c.parts[0].genomic.chrom
 		gf.FeatStart = c.parts[0].genomic.left
-		gf.FeatEnd = c.parts[len(c.parts)-1].genomic.right
+		gf.FeatEnd = right
 		score := c.score
 		gf.FeatScore = &score
 		gf.FeatStrand = c.parts[0].genomic.strand
