@@ -42,7 +42,7 @@ const (
 
 var (
 	libFile   = flag.String("lib", "", "fasta file to use to define repeat family lengths and classes")
-	defFile   = flag.String("defs", "", "tab delimted file to use to define repeat family lengths and classes")
+	defFile   = flag.String("defs", "", "tab delimited file to use to define repeat family lengths and classes")
 	defHeader = flag.Bool("defs-header", true, "defs file has header")
 )
 
