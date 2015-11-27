@@ -43,6 +43,7 @@ const (
 var (
 	libFile   = flag.String("lib", "", "fasta file to use to define repeat family lengths and classes")
 	defFile   = flag.String("defs", "", "tab delimited file to use to define repeat family lengths and classes")
+	defClass  = flag.String("class", "", "the default class to use when no class information is available in fasta input")
 	defHeader = flag.Bool("defs-header", true, "defs file has header")
 )
 
@@ -59,7 +60,7 @@ func main() {
 	)
 	switch {
 	case *libFile != "":
-		classes, err = readClassesFromFasta(*libFile)
+		classes, err = readClassesFromFasta(*libFile, *defClass)
 	case *defFile != "":
 		classes, err = readClassesFromDefs(*defFile, *defHeader)
 	}
@@ -93,7 +94,7 @@ type record struct {
 	length int
 }
 
-func readClassesFromFasta(file string) (map[string]record, error) {
+func readClassesFromFasta(file, defaultClass string) (map[string]record, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open library %q: %v", file, err)
@@ -107,7 +108,11 @@ func readClassesFromFasta(file string) (map[string]record, error) {
 		var class string
 		desc := sc.Seq().Description()
 		if len(desc) == 0 {
-			class = sc.Seq().Name()
+			if defaultClass == "" {
+				class = sc.Seq().Name()
+			} else {
+				class = defaultClass
+			}
 		} else {
 			class = strings.Replace(strings.Split(desc, "\t")[0], " ", "_", -1)
 		}
@@ -215,7 +220,7 @@ func repeatAttribute(data []string, classes map[string]record) string {
 	}
 	remains := class.length - right
 	if remains < 0 {
-		panic(fmt.Errorf("remaining sequence less than zero: %d", remains))
+		remains = 0 // Genomics!
 	}
 	return fmt.Sprintf("%s %s %d %d %d", name, class.name, left, right, remains)
 }
