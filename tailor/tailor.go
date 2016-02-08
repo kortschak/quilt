@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not open %q: %v", *inFile, err)
 	}
-	fmt.Fprintf(os.Stderr, "reading repeat features from %q.\n", *inFile)
+	fmt.Fprintf(os.Stderr, "reading stitched repeat features from %q.\n", *inFile)
 	in := gff.NewReader(f)
 
 	trees := make(map[string]*interval.IntTree)
