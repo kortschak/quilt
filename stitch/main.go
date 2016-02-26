@@ -102,8 +102,8 @@ func main() {
 	for _, c := range all {
 		right := c.parts[0].genomic.right
 		for _, p := range c.parts[1:] {
-			if p.right > right {
-				right = p.right
+			if p.genomic.right > right {
+				right = p.genomic.right
 			}
 		}
 		gf.SeqName = c.parts[0].genomic.chrom
