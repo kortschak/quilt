@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// patchwork overlays a set of repeats into stitch-chained composite repeats such
+// that the inserted repeats do not overlap the components of the chained repeats.
 package main
 
 import (

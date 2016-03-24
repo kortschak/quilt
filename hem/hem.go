@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// hem performs a basic analysis of the result of running stitch on a set
+// of repeat annotations.
 package main
 
 import (

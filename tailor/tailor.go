@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// tailor filters a set of repeat annotations for segments that have been
+// identified as part of a stitch-chained set of segments.
 package main
 
 import (
