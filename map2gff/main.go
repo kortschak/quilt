@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// rm2gff converts Censor map files to GFF including the stitch-required Repeat attribute.
+// map2gff converts Censor map files to GFF including the stitch-required Repeat attribute.
 package main
 
 import (
