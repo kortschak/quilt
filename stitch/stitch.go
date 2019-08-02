@@ -108,9 +108,19 @@ func stitch(repeats []*simple, cost func(left, right *simple) (score float64, ok
 
 	var cmp []composite
 
+	// Recover the highest scoring chains in descending order of
+	// chain score, not reusing any segments between chains.
 	final := a[len(a)-1]
+	// Construct a sortable set of link into the final chain set.
+	tails := make([]element, len(final))
+	for i, e := range final {
+		tails[i] = element{link: i, score: e.score}
+	}
+	sort.Sort(byScore(tails))
 	wasUsed := make([]bool, len(final))
-	for i := len(final) - 1; i >= 0; i-- {
+	for _, t := range tails {
+		i := t.link
+		// Don't use segments more than once.
 		if wasUsed[i] {
 			continue
 		}
@@ -121,6 +131,9 @@ func stitch(repeats []*simple, cost func(left, right *simple) (score float64, ok
 		c.score = final[i].score
 		c.class = repeats[0].class
 		for p = i; p != final[p].link; p = final[p].link {
+			if wasUsed[p] {
+				break
+			}
 			wasUsed[p] = true
 			c.parts = append(c.parts, part{
 				name:    repeats[p].name,
@@ -317,3 +330,9 @@ func (c byGenomeLocation) Less(i, j int) bool {
 	return iName < jName || (iName == jName && c[i].parts[0].genomic.left < c[j].parts[0].genomic.left)
 }
 func (c byGenomeLocation) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
+
+type byScore []element
+
+func (e byScore) Len() int           { return len(e) }
+func (e byScore) Less(i, j int) bool { return e[i].score > e[j].score }
+func (e byScore) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
